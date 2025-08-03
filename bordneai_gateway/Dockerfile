@@ -1,5 +1,5 @@
-# Use the official Home Assistant Node.js-specific base images
-ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base-nodejs:22
+# Use the stable Home Assistant Community Add-ons base image
+ARG BUILD_FROM=ghcr.io/hassio-addons/base-nodejs:18.2.1
 FROM ${BUILD_FROM}
 
 # Add build-time arguments for labels
@@ -13,12 +13,10 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # The base image already contains Node.js and npm.
 # We only need to install build tools for any native npm packages.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        python3 \
-        make \
-        g++ \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache \
+    python3 \
+    make \
+    g++
 
 # Set up the working directory
 WORKDIR /usr/src/app
