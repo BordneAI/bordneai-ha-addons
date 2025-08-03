@@ -1,5 +1,5 @@
 # Use a minimal Node.js base image (Home Assistant official)
-FROM ghcr.io/hassio-addons/base-nodejs:16.20.2
+FROM ghcr.io/hassio-addons/base-nodejs:16
 
 LABEL maintainer="David Charels Bordne <BordneAI@Bordne.com>"
 
