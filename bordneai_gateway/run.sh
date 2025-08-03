@@ -1,6 +1,6 @@
-#!/usr/bin/with-contenv bashio
+#!/usr/bin/with-contenv bash
 
-bashio::log.info "Preparing to start BordneAI Gateway..."
+echo "[INFO] Preparing to start BordneAI Gateway..."
 
 # Ensure the /data directory is available for session persistence
 if [ ! -d "/data" ]; then
