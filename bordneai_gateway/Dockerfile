@@ -1,5 +1,5 @@
-# Use the official Home Assistant Debian-based build arguments
-ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base-debian:12
+# Use the official Home Assistant Node.js-specific base images
+ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base-nodejs:22
 FROM ${BUILD_FROM}
 
 # Add build-time arguments for labels
@@ -11,17 +11,16 @@ ARG BUILD_VERSION
 # Set shell
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# Install Node.js 18.x LTS, npm, and build dependencies using Debian's package manager
+# The base image already contains Node.js and npm.
+# We only need to install build tools for any native npm packages.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        nodejs=18.* \
-        npm \
         python3 \
         make \
         g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# Set up the working directory inside the container
+# Set up the working directory
 WORKDIR /usr/src/app
 
 # Copy package files and install production dependencies
@@ -31,7 +30,7 @@ RUN npm install --omit=dev
 # Copy the rest of the application source code
 COPY . .
 
-# Make the run script executable by all users
+# Make the run script executable
 RUN chmod a+x /usr/src/app/run.sh
 
 # Set the command to run when the container starts
