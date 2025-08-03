@@ -2,7 +2,7 @@
   "version": "1.3.0",
   "slug": "bordneai_gateway",
   "description": "Secure device onboarding and dashboard with session persistence.",
-  "url": "https://github.com/BordneAI/bordneai-gateway-addon",
+  "url": "https://github.com/BordneAI/bordneai-ha-addons/bordneai-gateway-addon",
   "arch": ["aarch64", "amd64", "armhf", "armv7", "i386"],
   "boot": "auto",
   "init": false,
