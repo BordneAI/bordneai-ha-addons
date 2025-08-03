@@ -1,6 +1,6 @@
 # Use the official Home Assistant build arguments
 # A default is provided for easier local builds
-ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base:16.1.0
+ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base:17.0.0
 FROM ${BUILD_FROM}
 
 # Add build-time arguments for labels
