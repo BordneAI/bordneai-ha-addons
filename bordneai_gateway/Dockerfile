@@ -1,18 +1,22 @@
+ARG BUILD_ARCH
+ARG BUILDPLATFORM
 FROM --platform=$BUILDPLATFORM ghcr.io/home-assistant/${BUILD_ARCH}-base:latest
 
 # Install Node.js (use Alpine community package)
-RUN apk add --no-cache nodejs npm python3 make g++
+RUN apk add --no-cache nodejs npm
+
+# Copy application files
+COPY . /usr/src/app
 
 WORKDIR /usr/src/app
 
-COPY package.json package-lock.json* ./
-RUN npm install --omit=dev --no-optional --no-fund --no-audit
+# Install dependencies
+RUN npm install --production
 
-COPY . .
+# Set execution permissions
+RUN chmod +x /run.sh
 
-RUN chmod a+x /usr/src/app/run.sh
-
-CMD [ "/usr/src/app/run.sh" ]
+CMD [ "/run.sh" ]
 
 
 LABEL \
