@@ -1,5 +1,5 @@
 # Use the stable Home Assistant Community Add-ons base image with the 'latest' tag
-ARG BUILD_FROM=ghcr.io/hassio-addons/base-nodejs:latest
+ARG BUILD_FROM=ghcr.io/hassio-addons/base-nodejs:20.0.0
 FROM ${BUILD_FROM}
 
 # Add build-time arguments for labels
