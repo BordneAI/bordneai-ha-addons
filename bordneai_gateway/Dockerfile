@@ -1,18 +1,17 @@
-# Use a minimal Node.js base image (Home Assistant official)
-FROM ghcr.io/hassio-addons/base-nodejs:16
+FROM ghcr.io/home-assistant/base:3.19
 
 LABEL maintainer="David Charels Bordne <BordneAI@Bordne.com>"
 
-# Copy all files from this folder into the container
+# Install Node.js (18.x LTS)
+RUN apk add --no-cache nodejs npm
+
+# Copy all files
 COPY . /usr/src/app
 
 WORKDIR /usr/src/app
 
-# Install only production dependencies
 RUN npm ci --production
 
-# Expose the HTTP port
 EXPOSE 1111
 
-# Entrypoint: start the add-on
 CMD [ "/usr/src/app/run.sh" ]
