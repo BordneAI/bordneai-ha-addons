@@ -1,15 +1,10 @@
-#!/usr/bin/with-contenv bash
+#!/bin/sh
 
 echo "[INFO] Preparing to start BordneAI Gateway..."
 
-# Ensure the /data directory is available for session persistence
-if [ ! -d "/data" ]; then
-    bashio::log.info "Data directory not found. Creating..."
-    mkdir -p /data
-fi
+# Ensure the /data directory exists for session persistence
+[ -d /data ] || mkdir -p /data
 
-# Navigate to the application directory
+echo "[INFO] Starting BordneAI Gateway server..."
 cd /usr/src/app
-
-bashio::log.info "Starting BordneAI Gateway server..."
 npm start

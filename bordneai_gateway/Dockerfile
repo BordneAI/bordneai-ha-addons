@@ -1,10 +1,6 @@
-ARG BUILD_FROM
-FROM ${BUILD_FROM}
+FROM --platform=$BUILDPLATFORM ghcr.io/home-assistant/${BUILD_ARCH}-base:latest
 
-# Set shell for error handling
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-
-# Install Node.js 18.x LTS and build tools
+# Install Node.js (use Alpine community package)
 RUN apk add --no-cache nodejs npm python3 make g++
 
 WORKDIR /usr/src/app
@@ -17,6 +13,7 @@ COPY . .
 RUN chmod a+x /usr/src/app/run.sh
 
 CMD [ "/usr/src/app/run.sh" ]
+
 
 LABEL \
     io.hass.name="BordneAI Gateway" \
