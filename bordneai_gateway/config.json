@@ -1,6 +1,6 @@
 {
   "name": "BordneAI Gateway",
-  "version": "1.4.2",
+  "version": "2.0.0",
   "slug": "bordneai_gateway",
   "description": "Secure device onboarding and dashboard with a proper build configuration.",
   "url": "https://github.com/BordneAI/bordneai-ha-addons/tree/main/bordneai_gateway",
