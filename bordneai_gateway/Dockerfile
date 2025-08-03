@@ -2,18 +2,21 @@ ARG BUILD_ARCH
 ARG BUILDPLATFORM
 FROM --platform=$BUILDPLATFORM ghcr.io/home-assistant/${BUILD_ARCH}-base:latest
 
-# Install Node.js (use Alpine community package)
+# Install Node.js
 RUN apk add --no-cache nodejs npm
 
 # Copy application files
 COPY . /usr/src/app
+
+# Copy the startup script to root
+COPY run.sh /run.sh
 
 WORKDIR /usr/src/app
 
 # Install dependencies
 RUN npm install --production
 
-# Set execution permissions
+# Set execution permissions for run.sh
 RUN chmod +x /run.sh
 
 CMD [ "/run.sh" ]
