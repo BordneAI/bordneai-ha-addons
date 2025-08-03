@@ -1,17 +1,11 @@
-# Dockerfile for BordneAI Gateway
+# Use the official Home Assistant build arguments
 ARG BUILD_FROM
 FROM ${BUILD_FROM}
 
-# Add build-time arguments
-ARG BUILD_ARCH
-ARG BUILD_DATE
-ARG BUILD_REF
-ARG BUILD_VERSION
-
-# Set shell
+# Set shell to bash for better scripting
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# Install Node.js 18.x LTS, npm, and dependencies for native modules
+# Install Node.js 18.x LTS, npm, and build dependencies
 RUN apk add --no-cache \
     nodejs-lts \
     npm \
@@ -19,8 +13,13 @@ RUN apk add --no-cache \
     make \
     g++
 
-# Set up the working directory
+# Set up the working directory inside the container
 WORKDIR /usr/src/app
+
+# Copy package files and install production dependencies
+# This leverages Docker layer caching for faster subsequent builds
+COPY package.json ./
+RUN npm install --omit=dev
 
 # Copy package files and install dependencies
 # This leverages Docker layer caching to speed up builds
