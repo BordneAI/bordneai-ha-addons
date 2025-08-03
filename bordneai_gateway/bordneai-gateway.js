@@ -1,5 +1,5 @@
 // bordneai-gateway.js - Secure Onboarding & API Gateway
-// Version 1.3.0: Added session persistence and real-time revocation via HA WebSocket.
+// Version 1.4.1: Includes session persistence and real-time event-based revocation.
 
 const express = require('express');
 const path = require('path');
@@ -142,7 +142,7 @@ app.post('/api/onboarding/approve', async (req, res) => {
 
 app.get('/api/sessions', (req, res) => {
     const activeSessions = Object.values(sessions).filter(s => s.status === 'completed');
-    res.json(activeSessions.map(s => ({ token: s.token, deviceName: s.userAgent })));
+    res.json(activeSessions.map(s => ({ token: s.token, deviceName: s.userAgent, onboardedAt: new Date(s.createdAt).toLocaleString() })));
 });
 
 app.post('/api/onboarding/revoke', async (req, res) => {

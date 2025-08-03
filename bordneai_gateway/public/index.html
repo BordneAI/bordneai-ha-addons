@@ -48,11 +48,85 @@
     </div>
 
     <script>
-        // All SPA routing, view management, and WebSocket logic is identical to the previous response.
-        // The only change is adding the selfRevoke function and hooking it up.
+        let onboardingPollInterval = null;
+        let haSocket = null;
+        const agents = {
+            'light.office_lights': { name: 'Nova' },
+            'binary_sensor.front_door_contact': { name: 'Casper' },
+            'sensor.tesla_state_of_charge': { name: 'Energy' },
+            'sensor.pool_temperature': { name: 'Pool' }
+        };
+
+        // --- SPA ROUTING & INITIALIZATION ---
+        document.addEventListener('DOMContentLoaded', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const token = sessionStorage.getItem('haApiToken');
+            const approvalCode = urlParams.get('code');
+
+            if (urlParams.get('page') === 'approve' && approvalCode) {
+                showView('approval', { code: approvalCode });
+            } else if (token) {
+                showView('dashboard', { token });
+            } else {
+                showView('onboarding');
+            }
+        });
+
+        function showView(viewId, data = {}) {
+            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+            document.getElementById(`view-${viewId}`).classList.add('active');
+            if (viewId === 'onboarding') initOnboardingView();
+            else if (viewId === 'approval') initApprovalView(data.code);
+            else if (viewId === 'dashboard') initDashboardView(data.token);
+        }
+
+        // --- ONBOARDING & APPROVAL LOGIC ---
+        async function initOnboardingView() {
+            const res = await fetch('/api/onboarding/init');
+            const { code, sessionId } = await res.json();
+            const approvalUrl = `${window.location.origin}?page=approve&code=${code}`;
+            document.getElementById('pairing-code').textContent = code;
+            new QRCode(document.getElementById('qrcode-container'), { text: approvalUrl, width: 224, height: 224 });
+            onboardingPollInterval = setInterval(() => pollForStatus(sessionId), 3000);
+        }
+
+        async function pollForStatus(sessionId) {
+            const res = await fetch(`/api/onboarding/status?sessionId=${sessionId}`);
+            if (res.status !== 200) {
+                clearInterval(onboardingPollInterval);
+                document.getElementById('onboarding-status').textContent = 'Code expired. Please refresh.';
+                return;
+            }
+            const data = await res.json();
+            if (data.status === 'approved') {
+                clearInterval(onboardingPollInterval);
+                sessionStorage.setItem('haApiToken', data.token);
+                window.location.search = '';
+            }
+        }
+
+        function initApprovalView(code) {
+            document.getElementById('approval-code').textContent = code.toUpperCase();
+            document.getElementById('approve-btn').onclick = async () => {
+                const res = await fetch('/api/onboarding/approve', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ code })
+                });
+                const statusEl = document.getElementById('approval-status');
+                if (res.ok) {
+                    statusEl.textContent = 'Success! The other device is now connected.';
+                    statusEl.style.color = '#22c55e';
+                    document.getElementById('approve-btn').style.display = 'none';
+                } else {
+                    statusEl.textContent = 'Failed. The code may have expired.';
+                    statusEl.style.color = '#ef4444';
+                }
+            };
+        }
         
+        // --- DASHBOARD & WEBSOCKET LOGIC ---
         function initDashboardView(token) {
-            // ... (renderAgentCards and connectToHA calls are the same)
+            renderAgentCards();
+            connectToHA(token);
             document.getElementById('logout-btn').onclick = () => selfRevoke(token);
         }
 
@@ -69,9 +143,48 @@
                 window.location.reload();
             }
         }
-        
-        // --- PASTE ALL OTHER SPA JAVASCRIPT FUNCTIONS FROM THE PREVIOUS RESPONSE HERE ---
-        // (e.g., initOnboardingView, pollForStatus, initApprovalView, connectToHA, etc.)
+
+        function renderAgentCards() {
+            const grid = document.getElementById('agents-grid');
+            grid.innerHTML = '';
+            Object.keys(agents).forEach(entityId => {
+                const agent = agents[entityId];
+                const card = document.createElement('div');
+                card.id = `agent-${entityId}`;
+                card.className = 'bg-card p-4';
+                card.innerHTML = `<h3 class="font-bold">${agent.name}</h3><p class="text-gray-400 text-2xl">--</p>`;
+                grid.appendChild(card);
+            });
+        }
+
+        function updateAgentCard(entity_id, state) {
+            const card = document.getElementById(`agent-${entity_id}`);
+            if (card) {
+                card.querySelector('p').textContent = `${state.state} ${state.attributes.unit_of_measurement || ''}`;
+            }
+        }
+
+        function connectToHA(token) {
+            const haUrl = `wss://${window.location.host}/api/websocket`;
+            let haCallId = 1;
+            haSocket = new WebSocket(haUrl);
+
+            haSocket.onmessage = (event) => {
+                const message = JSON.parse(event.data);
+                if (message.type === 'auth_required') {
+                    haSocket.send(JSON.stringify({ type: 'auth', access_token: token }));
+                } else if (message.type === 'auth_ok') {
+                    document.getElementById('connection-status').style.backgroundColor = '#22c55e';
+                    haSocket.send(JSON.stringify({ id: haCallId++, type: 'subscribe_events', event_type: 'state_changed' }));
+                    haSocket.send(JSON.stringify({ id: haCallId++, type: 'get_states' }));
+                } else if (message.type === 'event' && message.event.event_type === 'state_changed') {
+                    updateAgentCard(message.event.data.entity_id, message.event.data.new_state);
+                } else if (message.type === 'result' && message.id === haCallId - 1) { // get_states result
+                    message.result.forEach(state => updateAgentCard(state.entity_id, state));
+                }
+            };
+            haSocket.onclose = () => document.getElementById('connection-status').style.backgroundColor = '#ef4444';
+        }
     </script>
 </body>
 </html>

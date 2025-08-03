@@ -1,6 +1,13 @@
 # Use the official Home Assistant build arguments
-ARG BUILD_FROM
+# A default is provided for easier local builds
+ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base:16.1.0
 FROM ${BUILD_FROM}
+
+# Add build-time arguments for labels
+ARG BUILD_ARCH
+ARG BUILD_DATE
+ARG BUILD_REF
+ARG BUILD_VERSION
 
 # Set shell to bash for better scripting
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -17,25 +24,19 @@ RUN apk add --no-cache \
 WORKDIR /usr/src/app
 
 # Copy package files and install production dependencies
-# This leverages Docker layer caching for faster subsequent builds
 COPY package.json ./
 RUN npm install --omit=dev
-
-# Copy package files and install dependencies
-# This leverages Docker layer caching to speed up builds
-COPY package.json package-lock.json* ./
-RUN npm install --omit=dev --no-optional --no-fund --no-audit
 
 # Copy the rest of the application source code
 COPY . .
 
-# Make the run script executable
+# Make the run script executable by all users
 RUN chmod a+x /usr/src/app/run.sh
 
 # Set the command to run when the container starts
 CMD [ "/usr/src/app/run.sh" ]
 
-# Add labels
+# Add labels for metadata
 LABEL \
     io.hass.name="BordneAI Gateway" \
     io.hass.description="Secure device onboarding and dashboard for BordneAI" \
