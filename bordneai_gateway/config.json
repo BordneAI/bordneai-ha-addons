@@ -1,16 +1,16 @@
 {
   "name": "BordneAI Gateway",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "slug": "bordneai_gateway",
-  "description": "Secure device onboarding and dashboard with session persistence.",
-  "url": "https://github.com/BordneAI/bordneai-ha-addons/bordneai-gateway-addon",
-  "arch": ["aarch64", "amd64", "armhf", "armv7", "i386"],
+  "description": "Secure device onboarding and dashboard with a proper build configuration.",
+  "url": "https://github.com/BordneAI/bordneai-ha-addons/tree/main/bordneai_gateway",
+  "arch": ["aarch64", "amd64", "armv7"],
   "boot": "auto",
   "init": false,
-  "panel_icon": "mdi:lan-connect",
-  "panel_title": "BordneAI",
+  "panel_icon": "mdi:qrcode-scan",
   "ingress": true,
   "homeassistant_api": true,
+  "build": "build.json",
   "ports": {
     "1111/tcp": null
   },
