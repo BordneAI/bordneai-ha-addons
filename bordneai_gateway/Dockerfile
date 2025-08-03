@@ -1,4 +1,4 @@
-ARG BUILD_FROM=ghcr.io/home-assistant/{arch}-base:2023.09.1
+ARG BUILD_FROM
 FROM ${BUILD_FROM}
 
 # Set shell for error handling
