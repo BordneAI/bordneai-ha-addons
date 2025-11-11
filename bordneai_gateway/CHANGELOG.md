@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.7] - 2025-11-11
+
+### Fixed
+- **NPM Module Resolution Fix**: Added shared C++ libraries (libstdc++, libgcc_s) required by Node.js
+- Resolves "Cannot find module '../lib/cli.js'" error during npm install
+- Node.js binary now has all required dependencies to run npm commands
+- Changed symlinks to use `-sf` (force) flag to prevent errors on rebuild
+
+### Changed
+- Copy additional shared libraries from Node.js image: libstdc++.so.6, libgcc_s.so.1
+- Improved symlink creation with force flag for idempotent builds
+
 ## [3.3.6] - 2025-11-11
 
 ### Fixed
