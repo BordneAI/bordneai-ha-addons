@@ -1,8 +1,12 @@
 ARG BUILD_FROM
 FROM ${BUILD_FROM}
 
-# Install Node.js
-RUN apk add --no-cache --update nodejs npm
+# Install Node.js and npm
+RUN \
+    apk update \
+    && apk add --no-cache \
+        nodejs \
+        npm
 
 # Copy application files
 COPY . /usr/src/app
