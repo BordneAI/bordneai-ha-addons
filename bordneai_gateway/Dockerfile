@@ -5,18 +5,22 @@ FROM node:20-alpine3.19 AS nodejs
 # Main build stage
 FROM ${BUILD_FROM}
 
-# Copy only Node.js and npm binaries (not entire directories)
+# Copy Node.js binaries and complete runtime from nodejs image
 COPY --from=nodejs /usr/local/bin/node /usr/local/bin/node
 COPY --from=nodejs /usr/local/bin/npm /usr/local/bin/npm
 COPY --from=nodejs /usr/local/bin/npx /usr/local/bin/npx
 
-# Copy Node.js libraries (be selective to avoid overwriting system files)
+# Copy complete Node.js library structure (includes npm internals)
 COPY --from=nodejs /usr/local/lib/node_modules /usr/local/lib/node_modules
 
+# Copy shared libraries that Node.js depends on
+COPY --from=nodejs /usr/lib/libstdc++.so.6 /usr/lib/libstdc++.so.6
+COPY --from=nodejs /usr/lib/libgcc_s.so.1 /usr/lib/libgcc_s.so.1
+
 # Create symlinks for backwards compatibility
-RUN ln -s /usr/local/bin/node /usr/bin/node && \
-    ln -s /usr/local/bin/npm /usr/bin/npm && \
-    ln -s /usr/local/bin/npx /usr/bin/npx
+RUN ln -sf /usr/local/bin/node /usr/bin/node && \
+    ln -sf /usr/local/bin/npm /usr/bin/npm && \
+    ln -sf /usr/local/bin/npx /usr/bin/npx
 
 # Copy application files
 COPY . /usr/src/app
