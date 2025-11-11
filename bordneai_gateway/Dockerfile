@@ -1,9 +1,8 @@
-ARG BUILD_ARCH
-ARG BUILDPLATFORM
-FROM --platform=$BUILDPLATFORM ghcr.io/home-assistant/${BUILD_ARCH}-base:latest
+ARG BUILD_FROM
+FROM ${BUILD_FROM}
 
 # Install Node.js
-RUN apk add --no-cache nodejs npm
+RUN apk add --no-cache --update nodejs npm
 
 # Copy application files
 COPY . /usr/src/app
