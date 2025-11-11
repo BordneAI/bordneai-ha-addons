@@ -1,15 +1,16 @@
 ARG BUILD_FROM
 FROM ${BUILD_FROM}
 
-# Install Node.js and npm with better error handling and retries
+# Use alternative Alpine mirrors for better reliability
 RUN \
-    set -x \
-    && apk update \
-    && apk add --no-cache \
-        nodejs \
-        npm \
-    || (sleep 5 && apk update && apk add --no-cache nodejs npm) \
-    || (sleep 10 && apk update && apk add --no-cache nodejs npm)
+    echo "http://dl-4.alpinelinux.org/alpine/v3.19/main" > /etc/apk/repositories && \
+    echo "http://dl-4.alpinelinux.org/alpine/v3.19/community" >> /etc/apk/repositories && \
+    echo "http://dl-5.alpinelinux.org/alpine/v3.19/main" >> /etc/apk/repositories && \
+    echo "http://dl-5.alpinelinux.org/alpine/v3.19/community" >> /etc/apk/repositories
+
+# Install Node.js and npm with alternative mirrors
+RUN \
+    apk add --no-cache nodejs npm
 
 # Copy application files
 COPY . /usr/src/app

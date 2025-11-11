@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.4] - 2025-11-11
+
+### Fixed
+- **Critical Network Fix**: Replaced default Alpine CDN mirrors with alternative mirrors (dl-4, dl-5) to resolve timeout issues
+- Removed retry logic and simplified package installation using reliable mirror servers
+- Addresses "temporary error (try again later)" when fetching from dl-cdn.alpinelinux.org
+
+### Changed
+- Alpine repositories now use dl-4.alpinelinux.org and dl-5.alpinelinux.org mirrors
+- Streamlined Dockerfile for faster and more reliable builds
+
 ## [3.3.3] - 2025-11-11
 
 ### Fixed
