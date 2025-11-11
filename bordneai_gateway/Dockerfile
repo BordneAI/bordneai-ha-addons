@@ -1,16 +1,14 @@
 ARG BUILD_FROM
+# Multi-stage build: Get Node.js from official image
+FROM node:20-alpine3.19 AS nodejs
+
+# Main build stage
 FROM ${BUILD_FROM}
 
-# Use alternative Alpine mirrors for better reliability
-RUN \
-    echo "http://dl-4.alpinelinux.org/alpine/v3.19/main" > /etc/apk/repositories && \
-    echo "http://dl-4.alpinelinux.org/alpine/v3.19/community" >> /etc/apk/repositories && \
-    echo "http://dl-5.alpinelinux.org/alpine/v3.19/main" >> /etc/apk/repositories && \
-    echo "http://dl-5.alpinelinux.org/alpine/v3.19/community" >> /etc/apk/repositories
-
-# Install Node.js and npm with alternative mirrors
-RUN \
-    apk add --no-cache nodejs npm
+# Copy Node.js and npm from the Node.js image
+COPY --from=nodejs /usr/lib /usr/lib
+COPY --from=nodejs /usr/local/bin /usr/local/bin
+COPY --from=nodejs /usr/local/lib /usr/local/lib
 
 # Copy application files
 COPY . /usr/src/app
