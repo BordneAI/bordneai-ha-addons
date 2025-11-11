@@ -1,5 +1,5 @@
 // bordneai-gateway.js - Secure Onboarding & API Gateway
-// Version 1.4.1: Includes session persistence and real-time event-based revocation.
+// Version 1.5.0: Includes session persistence, real-time event-based revocation, and AdGuard Home integration.
 
 const express = require('express');
 const path = require('path');
@@ -11,6 +11,26 @@ const WebSocket = require('ws');
 const app = express();
 app.use(express.json());
 const PORT = 1111;
+
+// --- ADGUARD HOME CONFIGURATION ---
+const OPTIONS_FILE_PATH = '/data/options.json';
+let adguardConfig = { url: '', username: '', password: '' };
+
+try {
+    if (fs.existsSync(OPTIONS_FILE_PATH)) {
+        const options = JSON.parse(fs.readFileSync(OPTIONS_FILE_PATH));
+        adguardConfig = {
+            url: options.adguard_url || '',
+            username: options.adguard_username || '',
+            password: options.adguard_password || ''
+        };
+        if (adguardConfig.url) {
+            console.log('[INIT] AdGuard Home integration enabled:', adguardConfig.url);
+        }
+    }
+} catch (error) {
+    console.error('[INIT] Error loading AdGuard Home config:', error);
+}
 
 // --- PERSISTENT SESSION STORAGE ---
 const SESSIONS_FILE_PATH = '/data/sessions.json';
@@ -51,6 +71,88 @@ function saveWhitelist() {
         fs.writeFileSync(WHITELIST_FILE_PATH, JSON.stringify(dnsWhitelist, null, 2));
     } catch (error) {
         console.error('[SAVE] Error saving dns_whitelist.json:', error);
+    }
+}
+
+// --- ADGUARD HOME API INTEGRATION ---
+function getAdGuardAuthHeader() {
+    if (!adguardConfig.username || !adguardConfig.password) return {};
+    const credentials = Buffer.from(`${adguardConfig.username}:${adguardConfig.password}`).toString('base64');
+    return { 'Authorization': `Basic ${credentials}` };
+}
+
+async function syncToAdGuardHome() {
+    if (!adguardConfig.url) {
+        console.log('[AdGuard] Integration not configured, skipping sync');
+        return { success: false, message: 'AdGuard Home not configured' };
+    }
+
+    try {
+        // Get current custom filtering rules
+        const getRulesResponse = await fetch(`${adguardConfig.url}/control/filtering/status`, {
+            headers: getAdGuardAuthHeader()
+        });
+
+        if (!getRulesResponse.ok) {
+            throw new Error(`Failed to get AdGuard Home rules: ${getRulesResponse.statusText}`);
+        }
+
+        const filteringStatus = await getRulesResponse.json();
+        let currentRules = filteringStatus.user_rules || [];
+
+        // Remove old whitelist rules (those starting with @@||) that we manage
+        currentRules = currentRules.filter(rule => !rule.startsWith('@@||') || !rule.includes('! BordneAI'));
+
+        // Add new whitelist rules from our DNS whitelist
+        const whitelistRules = dnsWhitelist.map(entry =>
+            `@@||${entry.domain}^$important ! BordneAI Whitelist`
+        );
+
+        const updatedRules = [...currentRules, ...whitelistRules];
+
+        // Update AdGuard Home with new rules
+        const setRulesResponse = await fetch(`${adguardConfig.url}/control/filtering/set_rules`, {
+            method: 'POST',
+            headers: {
+                ...getAdGuardAuthHeader(),
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ rules: updatedRules })
+        });
+
+        if (!setRulesResponse.ok) {
+            throw new Error(`Failed to update AdGuard Home rules: ${setRulesResponse.statusText}`);
+        }
+
+        console.log(`[AdGuard] Successfully synced ${dnsWhitelist.length} domains to AdGuard Home`);
+        return { success: true, message: 'Synced to AdGuard Home' };
+    } catch (error) {
+        console.error('[AdGuard] Error syncing to AdGuard Home:', error);
+        return { success: false, message: error.message };
+    }
+}
+
+async function addDomainToAdGuard(domain) {
+    if (!adguardConfig.url) return { success: false };
+
+    try {
+        await syncToAdGuardHome();
+        return { success: true };
+    } catch (error) {
+        console.error('[AdGuard] Error adding domain:', error);
+        return { success: false, message: error.message };
+    }
+}
+
+async function removeDomainFromAdGuard(domain) {
+    if (!adguardConfig.url) return { success: false };
+
+    try {
+        await syncToAdGuardHome();
+        return { success: true };
+    } catch (error) {
+        console.error('[AdGuard] Error removing domain:', error);
+        return { success: false, message: error.message };
     }
 }
 
@@ -181,7 +283,7 @@ app.get('/api/whitelist', (req, res) => {
     res.json(dnsWhitelist);
 });
 
-app.post('/api/whitelist/add', (req, res) => {
+app.post('/api/whitelist/add', async (req, res) => {
     const { domain } = req.body;
     if (!domain) return res.status(400).json({ error: 'Domain is required.' });
 
@@ -205,10 +307,18 @@ app.post('/api/whitelist/add', (req, res) => {
 
     dnsWhitelist.push(newEntry);
     saveWhitelist();
-    res.json({ success: true, entry: newEntry });
+
+    // Sync to AdGuard Home
+    const adguardResult = await addDomainToAdGuard(domain);
+
+    res.json({
+        success: true,
+        entry: newEntry,
+        adguard: adguardResult
+    });
 });
 
-app.post('/api/whitelist/remove', (req, res) => {
+app.post('/api/whitelist/remove', async (req, res) => {
     const { id } = req.body;
     if (!id) return res.status(400).json({ error: 'ID is required.' });
 
@@ -217,26 +327,54 @@ app.post('/api/whitelist/remove', (req, res) => {
         return res.status(404).json({ error: 'Domain not found in whitelist.' });
     }
 
+    const domain = dnsWhitelist[index].domain;
     dnsWhitelist.splice(index, 1);
     saveWhitelist();
-    res.json({ success: true, message: 'Domain removed from whitelist.' });
+
+    // Sync to AdGuard Home
+    const adguardResult = await removeDomainFromAdGuard(domain);
+
+    res.json({
+        success: true,
+        message: 'Domain removed from whitelist.',
+        adguard: adguardResult
+    });
 });
 
-app.post('/api/whitelist/clear', (req, res) => {
+app.post('/api/whitelist/clear', async (req, res) => {
     dnsWhitelist = [];
     saveWhitelist();
-    res.json({ success: true, message: 'Whitelist cleared.' });
+
+    // Sync to AdGuard Home
+    const adguardResult = await syncToAdGuardHome();
+
+    res.json({
+        success: true,
+        message: 'Whitelist cleared.',
+        adguard: adguardResult
+    });
 });
 
 // --- SERVER START ---
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
     console.log(`BordneAI Gateway started on port ${PORT}.`);
     if (HA_SUPERVISOR_TOKEN) {
         connectToHaWebsocket();
     } else {
         console.error("CRITICAL: SUPERVISOR_TOKEN not found. Real-time revocation will not work.");
+    }
+
+    // Initial sync to AdGuard Home on startup
+    if (adguardConfig.url) {
+        console.log('[AdGuard] Performing initial sync on startup...');
+        const syncResult = await syncToAdGuardHome();
+        if (syncResult.success) {
+            console.log('[AdGuard] Initial sync completed successfully');
+        } else {
+            console.error('[AdGuard] Initial sync failed:', syncResult.message);
+        }
     }
 });

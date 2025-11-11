@@ -23,6 +23,21 @@ This add-on provides a secure gateway for onboarding new devices (like a Tesla b
 
 The add-on includes a DNS whitelist management interface accessible from the dashboard. Click the **"DNS Whitelist"** button in the header to manage whitelisted domains.
 
+### AdGuard Home Integration
+
+The DNS whitelist automatically syncs with **AdGuard Home** if configured. To enable integration:
+
+1. Go to the add-on **Configuration** tab
+2. Set the following options:
+   - **adguard_url**: The URL of your AdGuard Home instance (e.g., `http://a0d7b954-adguard`)
+   - **adguard_username**: Your AdGuard Home username
+   - **adguard_password**: Your AdGuard Home password
+3. Save the configuration and restart the add-on
+
+Once configured, all whitelist changes will automatically sync to AdGuard Home's custom filtering rules. The addon uses the AdGuard Home API to add allowlist rules in the format `@@||domain.com^$important`.
+
+**Note**: If AdGuard Home is not configured, the whitelist will still work locally but won't affect DNS filtering.
+
 ### Default Whitelisted Domains
 
 The following domains are automatically added to the whitelist on first startup:
@@ -41,7 +56,7 @@ The following domains are automatically added to the whitelist on first startup:
 
 ### Managing the Whitelist
 
-You can add, remove, or clear domains through the web interface. The whitelist is stored in `/data/dns_whitelist.json` and persists across restarts.
+You can add, remove, or clear domains through the web interface. The whitelist is stored in `/data/dns_whitelist.json` and persists across restarts. All changes sync to AdGuard Home in real-time if integration is enabled.
 
 ### API Endpoints
 
@@ -50,6 +65,8 @@ The whitelist can also be managed programmatically:
 - `POST /api/whitelist/add` - Add a domain (body: `{"domain": "example.com"}`)
 - `POST /api/whitelist/remove` - Remove a domain (body: `{"id": "domain-id"}`)
 - `POST /api/whitelist/clear` - Clear all domains
+
+All API endpoints will sync to AdGuard Home if configured.
 
 ## Revocation Setup (Optional)
 
