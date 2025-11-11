@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.3] - 2025-11-11
+
+### Fixed
+- **Docker Build Fix**: Corrected base image repository paths to use official Home Assistant base images with pinned Alpine 3.19 version
+- Changed from inaccessible Community Add-ons base images to official HA base images
+- Pinned to Alpine 3.19 for stability instead of using `:latest` tag
+
+### Changed
+- Base images now use `ghcr.io/home-assistant/{arch}-base:3.19` format
+
 ## [3.3.2] - 2025-11-11
 
 ### Fixed

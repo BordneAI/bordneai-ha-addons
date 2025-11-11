@@ -1,6 +1,6 @@
 {
   "name": "BordneAI Gateway",
-  "version": "3.3.2",
+  "version": "3.3.3",
   "slug": "bordneai_gateway",
   "description": "Secure device onboarding with DNS whitelist management and AdGuard Home integration using stable community base images.",
   "url": "https://github.com/BordneAI/bordneai-ha-addons/tree/main/bordneai_gateway",
