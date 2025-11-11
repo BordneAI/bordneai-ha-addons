@@ -33,6 +33,27 @@ function saveSessions() {
     }
 }
 
+// --- DNS WHITELIST STORAGE ---
+const WHITELIST_FILE_PATH = '/data/dns_whitelist.json';
+let dnsWhitelist = [];
+
+try {
+    if (fs.existsSync(WHITELIST_FILE_PATH)) {
+        dnsWhitelist = JSON.parse(fs.readFileSync(WHITELIST_FILE_PATH));
+        console.log('[INIT] Successfully loaded DNS whitelist from file.');
+    }
+} catch (error) {
+    console.error('[INIT] Error loading dns_whitelist.json:', error);
+}
+
+function saveWhitelist() {
+    try {
+        fs.writeFileSync(WHITELIST_FILE_PATH, JSON.stringify(dnsWhitelist, null, 2));
+    } catch (error) {
+        console.error('[SAVE] Error saving dns_whitelist.json:', error);
+    }
+}
+
 // --- HOME ASSISTANT NATIVE API INTEGRATION ---
 const HA_SUPERVISOR_TOKEN = process.env.SUPERVISOR_TOKEN;
 const HA_API_URL = 'http://supervisor/core/api';
@@ -153,6 +174,58 @@ app.post('/api/onboarding/revoke', async (req, res) => {
     } else {
         res.status(404).json({ error: 'Token not found in active sessions.' });
     }
+});
+
+// --- DNS WHITELIST API ENDPOINTS ---
+app.get('/api/whitelist', (req, res) => {
+    res.json(dnsWhitelist);
+});
+
+app.post('/api/whitelist/add', (req, res) => {
+    const { domain } = req.body;
+    if (!domain) return res.status(400).json({ error: 'Domain is required.' });
+
+    // Basic domain validation
+    const domainRegex = /^([a-zA-Z0-9-]+\.)*[a-zA-Z0-9-]+\.[a-zA-Z]{2,}$/;
+    if (!domainRegex.test(domain)) {
+        return res.status(400).json({ error: 'Invalid domain format.' });
+    }
+
+    // Check if domain already exists
+    if (dnsWhitelist.some(item => item.domain === domain)) {
+        return res.status(400).json({ error: 'Domain already exists in whitelist.' });
+    }
+
+    const newEntry = {
+        id: uuidv4(),
+        domain: domain,
+        addedAt: Date.now(),
+        addedBy: req.ip
+    };
+
+    dnsWhitelist.push(newEntry);
+    saveWhitelist();
+    res.json({ success: true, entry: newEntry });
+});
+
+app.post('/api/whitelist/remove', (req, res) => {
+    const { id } = req.body;
+    if (!id) return res.status(400).json({ error: 'ID is required.' });
+
+    const index = dnsWhitelist.findIndex(item => item.id === id);
+    if (index === -1) {
+        return res.status(404).json({ error: 'Domain not found in whitelist.' });
+    }
+
+    dnsWhitelist.splice(index, 1);
+    saveWhitelist();
+    res.json({ success: true, message: 'Domain removed from whitelist.' });
+});
+
+app.post('/api/whitelist/clear', (req, res) => {
+    dnsWhitelist = [];
+    saveWhitelist();
+    res.json({ success: true, message: 'Whitelist cleared.' });
 });
 
 // --- SERVER START ---
