@@ -9,6 +9,7 @@ This add-on provides a secure gateway for onboarding new devices (like a Tesla b
 - **Live Dashboard**: The included single-page app connects directly to your Home Assistant WebSocket API for real-time entity updates.
 - **Session Persistence**: Onboarded device sessions are saved to the `/data` directory and survive restarts of the add-on.
 - **Real-time Revocation**: A Home Assistant script can fire an event to instantly revoke a device's access.
+- **DNS Whitelist Management**: Built-in web interface to manage whitelisted domains for DNS filtering integration.
 
 ## Installation
 
@@ -17,6 +18,38 @@ This add-on provides a secure gateway for onboarding new devices (like a Tesla b
 3.  **Install**: The "BordneAI Gateway" add-on will appear under the "Local add-ons" section. Click on it and then click "Install".
 4.  **Start**: Start the add-on. Check the logs to ensure the server starts correctly.
 5.  **Access the UI**: Use the "Open Web UI" button on the add-on's page. If it's the first time accessing from that browser, it will begin the secure onboarding process.
+
+## DNS Whitelist
+
+The add-on includes a DNS whitelist management interface accessible from the dashboard. Click the **"DNS Whitelist"** button in the header to manage whitelisted domains.
+
+### Default Whitelisted Domains
+
+The following domains are automatically added to the whitelist on first startup:
+- startme.com
+- bordne.com
+- icloud.com
+- apple.com
+- amazon.com
+- chat.avatar.ext.hp.com
+- googleapis.com
+- tesla.com
+- teslamotors.com
+- sg.vzwfemto.com
+- izatcloud.net
+- pool.ntp.org
+
+### Managing the Whitelist
+
+You can add, remove, or clear domains through the web interface. The whitelist is stored in `/data/dns_whitelist.json` and persists across restarts.
+
+### API Endpoints
+
+The whitelist can also be managed programmatically:
+- `GET /api/whitelist` - Get all whitelisted domains
+- `POST /api/whitelist/add` - Add a domain (body: `{"domain": "example.com"}`)
+- `POST /api/whitelist/remove` - Remove a domain (body: `{"id": "domain-id"}`)
+- `POST /api/whitelist/clear` - Clear all domains
 
 ## Revocation Setup (Optional)
 
