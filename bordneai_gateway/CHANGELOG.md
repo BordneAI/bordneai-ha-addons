@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.6] - 2025-11-11
+
+### Fixed
+- **CRITICAL RUNTIME FIX**: Fixed addon crash on startup caused by overwriting system files
+- Changed from copying entire directories to selective file copying in multi-stage build
+- Only copy Node.js-specific binaries (node, npm, npx) and libraries (node_modules)
+- Preserves Home Assistant base image's shell and system utilities
+- Resolves "/run.sh: not found" error by keeping /bin/sh intact
+- Added symlinks for backwards compatibility (/usr/bin/node, /usr/bin/npm, /usr/bin/npx)
+
+### Changed
+- More precise COPY commands in Dockerfile to avoid system file conflicts
+- Multi-stage build now surgical rather than wholesale directory replacement
+
 ## [3.3.5] - 2025-11-11
 
 ### Fixed
