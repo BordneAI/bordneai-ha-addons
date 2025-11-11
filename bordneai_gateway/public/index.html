@@ -42,9 +42,39 @@
     <div id="view-dashboard" class="view max-w-screen-lg mx-auto">
         <header class="flex justify-between items-center mb-4 p-2 bg-card">
              <div class="flex items-center space-x-2"><img src="/logo.png" class="h-8 w-8" alt="Logo"><h1 class="text-lg font-bold">BordneAI Dashboard</h1><div id="connection-status" class="w-3 h-3 rounded-full bg-red-500" title="Disconnected"></div></div>
-             <button id="logout-btn" class="btn bg-red-600 text-white text-xs py-1 px-2">Logout</button>
+             <div class="flex space-x-2">
+                 <button id="whitelist-btn" class="btn bg-blue-600 text-white text-xs py-1 px-2">DNS Whitelist</button>
+                 <button id="logout-btn" class="btn bg-red-600 text-white text-xs py-1 px-2">Logout</button>
+             </div>
         </header>
         <div id="agents-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+    </div>
+
+    <div id="view-whitelist" class="view max-w-screen-lg mx-auto">
+        <header class="flex justify-between items-center mb-4 p-2 bg-card">
+             <div class="flex items-center space-x-2"><img src="/logo.png" class="h-8 w-8" alt="Logo"><h1 class="text-lg font-bold">DNS Whitelist</h1></div>
+             <div class="flex space-x-2">
+                 <button id="back-to-dashboard-btn" class="btn bg-gray-600 text-white text-xs py-1 px-2">Back to Dashboard</button>
+                 <button id="logout-whitelist-btn" class="btn bg-red-600 text-white text-xs py-1 px-2">Logout</button>
+             </div>
+        </header>
+
+        <div class="bg-card p-4 mb-4">
+            <h2 class="text-lg font-bold mb-4">Add Domain to Whitelist</h2>
+            <div class="flex gap-2">
+                <input id="domain-input" type="text" placeholder="example.com" class="flex-1 px-4 py-2 bg-gray-900/50 rounded-lg border border-gray-700 focus:border-blue-500 outline-none">
+                <button id="add-domain-btn" class="btn btn-success">Add Domain</button>
+            </div>
+            <p id="add-status" class="text-sm mt-2 h-5"></p>
+        </div>
+
+        <div class="bg-card p-4">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-bold">Whitelisted Domains</h2>
+                <button id="clear-whitelist-btn" class="btn bg-red-600 text-white text-xs py-1 px-2">Clear All</button>
+            </div>
+            <div id="whitelist-container" class="space-y-2"></div>
+        </div>
     </div>
 
     <script>
@@ -65,6 +95,8 @@
 
             if (urlParams.get('page') === 'approve' && approvalCode) {
                 showView('approval', { code: approvalCode });
+            } else if (urlParams.get('page') === 'whitelist' && token) {
+                showView('whitelist', { token });
             } else if (token) {
                 showView('dashboard', { token });
             } else {
@@ -78,6 +110,7 @@
             if (viewId === 'onboarding') initOnboardingView();
             else if (viewId === 'approval') initApprovalView(data.code);
             else if (viewId === 'dashboard') initDashboardView(data.token);
+            else if (viewId === 'whitelist') initWhitelistView(data.token);
         }
 
         // --- ONBOARDING & APPROVAL LOGIC ---
@@ -128,6 +161,9 @@
             renderAgentCards();
             connectToHA(token);
             document.getElementById('logout-btn').onclick = () => selfRevoke(token);
+            document.getElementById('whitelist-btn').onclick = () => {
+                window.location.search = '?page=whitelist';
+            };
         }
 
         async function selfRevoke(token) {
@@ -184,6 +220,124 @@
                 }
             };
             haSocket.onclose = () => document.getElementById('connection-status').style.backgroundColor = '#ef4444';
+        }
+
+        // --- DNS WHITELIST LOGIC ---
+        async function initWhitelistView(token) {
+            document.getElementById('logout-whitelist-btn').onclick = () => selfRevoke(token);
+            document.getElementById('back-to-dashboard-btn').onclick = () => {
+                window.location.search = '';
+            };
+            document.getElementById('add-domain-btn').onclick = addDomain;
+            document.getElementById('domain-input').onkeypress = (e) => {
+                if (e.key === 'Enter') addDomain();
+            };
+            document.getElementById('clear-whitelist-btn').onclick = clearWhitelist;
+            await loadWhitelist();
+        }
+
+        async function loadWhitelist() {
+            try {
+                const res = await fetch('/api/whitelist');
+                const whitelist = await res.json();
+                renderWhitelist(whitelist);
+            } catch (error) {
+                console.error('Error loading whitelist:', error);
+            }
+        }
+
+        function renderWhitelist(whitelist) {
+            const container = document.getElementById('whitelist-container');
+            if (whitelist.length === 0) {
+                container.innerHTML = '<p class="text-gray-400 text-center py-4">No domains in whitelist</p>';
+                return;
+            }
+
+            container.innerHTML = whitelist.map(entry => `
+                <div class="flex justify-between items-center p-3 bg-gray-900/50 rounded-lg border border-gray-700">
+                    <div class="flex-1">
+                        <p class="font-mono text-lg">${entry.domain}</p>
+                        <p class="text-xs text-gray-400">Added: ${new Date(entry.addedAt).toLocaleString()}</p>
+                    </div>
+                    <button onclick="removeDomain('${entry.id}')" class="btn bg-red-600 text-white text-xs py-1 px-3">Remove</button>
+                </div>
+            `).join('');
+        }
+
+        async function addDomain() {
+            const input = document.getElementById('domain-input');
+            const statusEl = document.getElementById('add-status');
+            const domain = input.value.trim();
+
+            if (!domain) {
+                statusEl.textContent = 'Please enter a domain';
+                statusEl.style.color = '#ef4444';
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/whitelist/add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ domain })
+                });
+
+                const data = await res.json();
+
+                if (res.ok) {
+                    statusEl.textContent = 'Domain added successfully';
+                    statusEl.style.color = '#22c55e';
+                    input.value = '';
+                    await loadWhitelist();
+                } else {
+                    statusEl.textContent = data.error || 'Failed to add domain';
+                    statusEl.style.color = '#ef4444';
+                }
+            } catch (error) {
+                statusEl.textContent = 'Network error';
+                statusEl.style.color = '#ef4444';
+            }
+
+            setTimeout(() => { statusEl.textContent = ''; }, 3000);
+        }
+
+        async function removeDomain(id) {
+            if (!confirm('Are you sure you want to remove this domain from the whitelist?')) return;
+
+            try {
+                const res = await fetch('/api/whitelist/remove', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id })
+                });
+
+                if (res.ok) {
+                    await loadWhitelist();
+                } else {
+                    alert('Failed to remove domain');
+                }
+            } catch (error) {
+                alert('Network error');
+            }
+        }
+
+        async function clearWhitelist() {
+            if (!confirm('Are you sure you want to clear the entire whitelist? This action cannot be undone.')) return;
+
+            try {
+                const res = await fetch('/api/whitelist/clear', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                if (res.ok) {
+                    await loadWhitelist();
+                } else {
+                    alert('Failed to clear whitelist');
+                }
+            } catch (error) {
+                alert('Network error');
+            }
         }
     </script>
 </body>
