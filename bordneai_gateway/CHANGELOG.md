@@ -5,6 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.0] - 2025-11-11
+
+### Added
+- **AdGuard Home Integration**: DNS whitelist now automatically syncs with AdGuard Home in real-time
+- Added optional configuration fields for AdGuard Home connection (URL, username, password)
+- Automatic initial sync to AdGuard Home on addon startup
+- AdGuard Home sync status reporting in API responses
+- Custom filtering rules with `@@||domain^$important` format for AdGuard Home
+- Preservation of non-BordneAI rules in AdGuard Home during sync
+
+### Changed
+- Updated DNS whitelist API endpoints to include AdGuard Home synchronization
+- Enhanced logging for AdGuard Home operations
+
+## [3.2.1] - 2025-11-11
+
+### Fixed
+- **Docker Build Fix**: Corrected Dockerfile to use `BUILD_FROM` ARG instead of `BUILD_ARCH` to resolve build failures
+- Fixed "InvalidDefaultArgInFrom" warning in Docker build
+- Added `--update` flag to apk package installation for better reliability
+
+## [3.2.0] - 2025-11-11
+
+### Added
+- **DNS Whitelist Management**: New web interface for managing whitelisted domains
+- DNS Whitelist page accessible from dashboard with "DNS Whitelist" button
+- API endpoints for DNS whitelist management:
+  - `GET /api/whitelist` - Retrieve all whitelisted domains
+  - `POST /api/whitelist/add` - Add domain with validation
+  - `POST /api/whitelist/remove` - Remove domain by ID
+  - `POST /api/whitelist/clear` - Clear all domains
+- Default whitelisted domains automatically added on first startup (12 domains including startme.com, bordne.com, icloud.com, apple.com, amazon.com, etc.)
+- Persistent storage for DNS whitelist in `/data/dns_whitelist.json`
+- Setup script (`setup-whitelist.js`) for automatic whitelist initialization
+- Domain format validation and duplicate checking
+- Modern responsive UI for whitelist management with real-time feedback
+
+### Changed
+- Updated startup script to initialize DNS whitelist on every start
+- Enhanced README with DNS whitelist documentation and API endpoints
+
 ## [3.0.0] - 2025-08-03
 
 ### Fixed

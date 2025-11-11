@@ -29,10 +29,13 @@ The DNS whitelist automatically syncs with **AdGuard Home** if configured. To en
 
 1. Go to the add-on **Configuration** tab
 2. Set the following options:
-   - **adguard_url**: The URL of your AdGuard Home instance (e.g., `http://a0d7b954-adguard`)
-   - **adguard_username**: Your AdGuard Home username
+   - **adguard_url**: The URL of your AdGuard Home instance
+     - If using Home Assistant AdGuard Home addon: `http://a0d7b954-adguard` (or check your addon slug)
+     - If using external AdGuard Home: `http://your-ip:3000`
+   - **adguard_username**: Your AdGuard Home username (from Settings → General Settings)
    - **adguard_password**: Your AdGuard Home password
 3. Save the configuration and restart the add-on
+4. Check the addon logs to verify successful connection: `[AdGuard] Successfully synced X domains to AdGuard Home`
 
 Once configured, all whitelist changes will automatically sync to AdGuard Home's custom filtering rules. The addon uses the AdGuard Home API to add allowlist rules in the format `@@||domain.com^$important`.
 
