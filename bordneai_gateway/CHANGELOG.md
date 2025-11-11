@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.2] - 2025-11-11
+
+### Fixed
+- **Critical Docker Build Fix**: Switched to Home Assistant Community Add-ons base images (v15.0.8) for improved stability
+- Added retry logic with exponential backoff (5s, 10s) for package installation to handle transient network issues
+- Added verbose output (`set -x`) for better build debugging
+
+### Changed
+- Updated base images from official HA images to hassio-addons/base images
+- Base images now use Alpine 3.19 with better package repository reliability
+
 ## [3.3.1] - 2025-11-11
 
 ### Fixed

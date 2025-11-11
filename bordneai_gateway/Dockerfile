@@ -1,12 +1,15 @@
 ARG BUILD_FROM
 FROM ${BUILD_FROM}
 
-# Install Node.js and npm
+# Install Node.js and npm with better error handling and retries
 RUN \
-    apk update \
+    set -x \
+    && apk update \
     && apk add --no-cache \
         nodejs \
-        npm
+        npm \
+    || (sleep 5 && apk update && apk add --no-cache nodejs npm) \
+    || (sleep 10 && apk update && apk add --no-cache nodejs npm)
 
 # Copy application files
 COPY . /usr/src/app
