@@ -1,6 +1,6 @@
 {
   "name": "BordneAI Gateway",
-  "version": "3.3.7",
+  "version": "3.3.8",
   "slug": "bordneai_gateway",
   "description": "Secure device onboarding with DNS whitelist management and AdGuard Home integration using stable community base images.",
   "url": "https://github.com/BordneAI/bordneai-ha-addons/tree/main/bordneai_gateway",
@@ -9,7 +9,9 @@
   "boot": "auto",
   "init": false,
   "panel_icon": "mdi:qrcode-scan",
+  "panel_admin": true,
   "ingress": true,
+  "ingress_port": 1111,
   "homeassistant_api": true,
   "build": "build.json",
   "ports": {
@@ -19,11 +21,13 @@
   "options": {
     "adguard_url": "",
     "adguard_username": "",
-    "adguard_password": ""
+    "adguard_password": "",
+    "admin_users": ""
   },
   "schema": {
     "adguard_url": "str?",
     "adguard_username": "str?",
-    "adguard_password": "password?"
+    "adguard_password": "password?",
+    "admin_users": "str?"
   }
 }
