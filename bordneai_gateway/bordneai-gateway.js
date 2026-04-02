@@ -1,6 +1,4 @@
-// bordneai-gateway.js - Secure Onboarding & API Gateway
-// Version 1.5.0: Includes session persistence, real-time event-based revocation, and AdGuard Home integration.
-
+// bordneai-gateway.js
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
@@ -9,350 +7,583 @@ const fetch = require('node-fetch');
 const WebSocket = require('ws');
 
 const app = express();
-app.use(express.json());
+app.disable('x-powered-by');
+app.set('trust proxy', false);
+app.use(express.json({ limit: '100kb' }));
+
 const PORT = 1111;
+const SESSION_TTL_MS = 5 * 60 * 1000;
 
-// --- ADGUARD HOME CONFIGURATION ---
+const ALLOWED_INGRESS_IPS = new Set([
+  '172.30.32.2',
+  '::ffff:172.30.32.2',
+  '127.0.0.1',
+  '::1'
+]);
+
 const OPTIONS_FILE_PATH = '/data/options.json';
-let adguardConfig = { url: '', username: '', password: '' };
+const SESSIONS_FILE_PATH = '/data/sessions.json';
+const WHITELIST_FILE_PATH = '/data/dns_whitelist.json';
 
-try {
-    if (fs.existsSync(OPTIONS_FILE_PATH)) {
-        const options = JSON.parse(fs.readFileSync(OPTIONS_FILE_PATH));
-        adguardConfig = {
-            url: options.adguard_url || '',
-            username: options.adguard_username || '',
-            password: options.adguard_password || ''
-        };
-        if (adguardConfig.url) {
-            console.log('[INIT] AdGuard Home integration enabled:', adguardConfig.url);
-        }
+let optionsConfig = {
+  adguard_url: '',
+  adguard_username: '',
+  adguard_password: '',
+  admin_users: ''
+};
+
+let sessions = {};
+let dnsWhitelist = [];
+
+loadOptions();
+loadSessions();
+loadWhitelist();
+cleanupSessionsOnBoot();
+
+function loadOptions() {
+  try {
+    if (!fs.existsSync(OPTIONS_FILE_PATH)) {
+      return;
     }
-} catch (error) {
-    console.error('[INIT] Error loading AdGuard Home config:', error);
+
+    const options = JSON.parse(fs.readFileSync(OPTIONS_FILE_PATH, 'utf8'));
+    optionsConfig = {
+      adguard_url: options.adguard_url || '',
+      adguard_username: options.adguard_username || '',
+      adguard_password: options.adguard_password || '',
+      admin_users: options.admin_users || ''
+    };
+
+    if (optionsConfig.adguard_url) {
+      console.log('[INIT] AdGuard Home integration enabled:', optionsConfig.adguard_url);
+    }
+  } catch (error) {
+    console.error('[INIT] Error loading options.json:', error);
+  }
 }
 
-// --- PERSISTENT SESSION STORAGE ---
-const SESSIONS_FILE_PATH = '/data/sessions.json';
-let sessions = {};
-
-try {
-    if (fs.existsSync(SESSIONS_FILE_PATH)) {
-        sessions = JSON.parse(fs.readFileSync(SESSIONS_FILE_PATH));
-        console.log('[INIT] Successfully loaded sessions from file.');
+function loadSessions() {
+  try {
+    if (!fs.existsSync(SESSIONS_FILE_PATH)) {
+      return;
     }
-} catch (error) {
+
+    sessions = JSON.parse(fs.readFileSync(SESSIONS_FILE_PATH, 'utf8'));
+    console.log('[INIT] Successfully loaded sessions from file.');
+  } catch (error) {
     console.error('[INIT] Error loading sessions.json:', error);
+    sessions = {};
+  }
+}
+
+function loadWhitelist() {
+  try {
+    if (!fs.existsSync(WHITELIST_FILE_PATH)) {
+      return;
+    }
+
+    dnsWhitelist = JSON.parse(fs.readFileSync(WHITELIST_FILE_PATH, 'utf8'));
+    console.log('[INIT] Successfully loaded DNS whitelist from file.');
+  } catch (error) {
+    console.error('[INIT] Error loading dns_whitelist.json:', error);
+    dnsWhitelist = [];
+  }
 }
 
 function saveSessions() {
-    try {
-        fs.writeFileSync(SESSIONS_FILE_PATH, JSON.stringify(sessions, null, 2));
-    } catch (error) {
-        console.error('[SAVE] Error saving sessions.json:', error);
-    }
-}
-
-// --- DNS WHITELIST STORAGE ---
-const WHITELIST_FILE_PATH = '/data/dns_whitelist.json';
-let dnsWhitelist = [];
-
-try {
-    if (fs.existsSync(WHITELIST_FILE_PATH)) {
-        dnsWhitelist = JSON.parse(fs.readFileSync(WHITELIST_FILE_PATH));
-        console.log('[INIT] Successfully loaded DNS whitelist from file.');
-    }
-} catch (error) {
-    console.error('[INIT] Error loading dns_whitelist.json:', error);
+  try {
+    fs.writeFileSync(SESSIONS_FILE_PATH, JSON.stringify(sessions, null, 2));
+  } catch (error) {
+    console.error('[SAVE] Error saving sessions.json:', error);
+  }
 }
 
 function saveWhitelist() {
-    try {
-        fs.writeFileSync(WHITELIST_FILE_PATH, JSON.stringify(dnsWhitelist, null, 2));
-    } catch (error) {
-        console.error('[SAVE] Error saving dns_whitelist.json:', error);
-    }
+  try {
+    fs.writeFileSync(WHITELIST_FILE_PATH, JSON.stringify(dnsWhitelist, null, 2));
+  } catch (error) {
+    console.error('[SAVE] Error saving dns_whitelist.json:', error);
+  }
 }
+
+function normalizeIdentity(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function getAdminUsersSet() {
+  return new Set(
+    String(optionsConfig.admin_users || '')
+      .split(',')
+      .map(normalizeIdentity)
+      .filter(Boolean)
+  );
+}
+
+function getRemoteUser(req) {
+  return {
+    id: req.get('X-Remote-User-Id') || '',
+    name: req.get('X-Remote-User-Name') || '',
+    displayName: req.get('X-Remote-User-Display-Name') || ''
+  };
+}
+
+function getRemoteUserKeys(req) {
+  const user = getRemoteUser(req);
+  return [user.id, user.name, user.displayName]
+    .map(normalizeIdentity)
+    .filter(Boolean);
+}
+
+function getRemoteUserLabel(req) {
+  const user = getRemoteUser(req);
+  return user.displayName || user.name || user.id || 'unknown';
+}
+
+function hasAuthenticatedIngressUser(req) {
+  const user = getRemoteUser(req);
+  return Boolean(user.id || user.name || user.displayName);
+}
+
+function isManagementUser(req) {
+  const adminUsers = getAdminUsersSet();
+  if (adminUsers.size === 0) {
+    return false;
+  }
+
+  return getRemoteUserKeys(req).some((value) => adminUsers.has(value));
+}
+
+function canAccessSession(req, session) {
+  if (isManagementUser(req)) {
+    return true;
+  }
+
+  const requestKeys = new Set(getRemoteUserKeys(req));
+  const sessionKeys = [
+    session.createdById,
+    session.createdByName,
+    session.createdByDisplayName
+  ]
+    .map(normalizeIdentity)
+    .filter(Boolean);
+
+  return sessionKeys.some((value) => requestKeys.has(value));
+}
+
+function cleanupSessionsOnBoot() {
+  let changed = false;
+  const now = Date.now();
+
+  for (const [sessionId, session] of Object.entries(sessions)) {
+    if (session && Object.prototype.hasOwnProperty.call(session, 'token')) {
+      delete session.token;
+      changed = true;
+    }
+
+    if (session?.status === 'pending' && now - Number(session.createdAt || 0) > SESSION_TTL_MS) {
+      delete sessions[sessionId];
+      changed = true;
+      continue;
+    }
+
+    if (session?.status === 'approved' && !session.approvedAt) {
+      session.approvedAt = session.createdAt || now;
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    saveSessions();
+  }
+}
+
+function schedulePendingSessionExpiry(sessionId) {
+  setTimeout(() => {
+    const session = sessions[sessionId];
+    if (session?.status === 'pending') {
+      delete sessions[sessionId];
+      saveSessions();
+      console.log(`[SESSION] Expired pending session ${sessionId}`);
+    }
+  }, SESSION_TTL_MS);
+}
+
+function requireIngress(req, res, next) {
+  const remoteAddress = req.socket.remoteAddress;
+  if (ALLOWED_INGRESS_IPS.has(remoteAddress)) {
+    return next();
+  }
+
+  return res.status(403).json({ error: 'Ingress only' });
+}
+
+function requireAuthenticatedUser(req, res, next) {
+  if (!hasAuthenticatedIngressUser(req)) {
+    return res.status(401).json({ error: 'Missing Home Assistant ingress user headers' });
+  }
+
+  return next();
+}
+
+function requireManagementUser(req, res, next) {
+  const adminUsers = getAdminUsersSet();
+
+  if (adminUsers.size === 0) {
+    return res.status(503).json({
+      error: 'Configure the admin_users option with your Home Assistant username or user ID first'
+    });
+  }
+
+  if (!isManagementUser(req)) {
+    return res.status(403).json({ error: 'Management access denied' });
+  }
+
+  return next();
+}
+
+app.use(requireIngress);
+app.use('/api', requireAuthenticatedUser);
 
 // --- ADGUARD HOME API INTEGRATION ---
 function getAdGuardAuthHeader() {
-    if (!adguardConfig.username || !adguardConfig.password) return {};
-    const credentials = Buffer.from(`${adguardConfig.username}:${adguardConfig.password}`).toString('base64');
-    return { 'Authorization': `Basic ${credentials}` };
+  if (!optionsConfig.adguard_username || !optionsConfig.adguard_password) {
+    return {};
+  }
+
+  const credentials = Buffer.from(
+    `${optionsConfig.adguard_username}:${optionsConfig.adguard_password}`
+  ).toString('base64');
+
+  return {
+    Authorization: `Basic ${credentials}`
+  };
 }
 
 async function syncToAdGuardHome() {
-    if (!adguardConfig.url) {
-        console.log('[AdGuard] Integration not configured, skipping sync');
-        return { success: false, message: 'AdGuard Home not configured' };
+  if (!optionsConfig.adguard_url) {
+    console.log('[AdGuard] Integration not configured, skipping sync');
+    return { success: false, message: 'AdGuard Home not configured' };
+  }
+
+  try {
+    const getRulesResponse = await fetch(`${optionsConfig.adguard_url}/control/filtering/status`, {
+      headers: getAdGuardAuthHeader()
+    });
+
+    if (!getRulesResponse.ok) {
+      throw new Error(`Failed to get AdGuard Home rules: ${getRulesResponse.statusText}`);
     }
 
-    try {
-        // Get current custom filtering rules
-        const getRulesResponse = await fetch(`${adguardConfig.url}/control/filtering/status`, {
-            headers: getAdGuardAuthHeader()
-        });
+    const filteringStatus = await getRulesResponse.json();
+    let currentRules = filteringStatus.user_rules || [];
 
-        if (!getRulesResponse.ok) {
-            throw new Error(`Failed to get AdGuard Home rules: ${getRulesResponse.statusText}`);
-        }
+    currentRules = currentRules.filter(
+      (rule) => !rule.startsWith('@@||') || !rule.includes('! BordneAI')
+    );
 
-        const filteringStatus = await getRulesResponse.json();
-        let currentRules = filteringStatus.user_rules || [];
+    const whitelistRules = dnsWhitelist.map(
+      (entry) => `@@||${entry.domain}^$important ! BordneAI Whitelist`
+    );
 
-        // Remove old whitelist rules (those starting with @@||) that we manage
-        currentRules = currentRules.filter(rule => !rule.startsWith('@@||') || !rule.includes('! BordneAI'));
+    const updatedRules = [...currentRules, ...whitelistRules];
 
-        // Add new whitelist rules from our DNS whitelist
-        const whitelistRules = dnsWhitelist.map(entry =>
-            `@@||${entry.domain}^$important ! BordneAI Whitelist`
-        );
+    const setRulesResponse = await fetch(`${optionsConfig.adguard_url}/control/filtering/set_rules`, {
+      method: 'POST',
+      headers: {
+        ...getAdGuardAuthHeader(),
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ rules: updatedRules })
+    });
 
-        const updatedRules = [...currentRules, ...whitelistRules];
-
-        // Update AdGuard Home with new rules
-        const setRulesResponse = await fetch(`${adguardConfig.url}/control/filtering/set_rules`, {
-            method: 'POST',
-            headers: {
-                ...getAdGuardAuthHeader(),
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ rules: updatedRules })
-        });
-
-        if (!setRulesResponse.ok) {
-            throw new Error(`Failed to update AdGuard Home rules: ${setRulesResponse.statusText}`);
-        }
-
-        console.log(`[AdGuard] Successfully synced ${dnsWhitelist.length} domains to AdGuard Home`);
-        return { success: true, message: 'Synced to AdGuard Home' };
-    } catch (error) {
-        console.error('[AdGuard] Error syncing to AdGuard Home:', error);
-        return { success: false, message: error.message };
+    if (!setRulesResponse.ok) {
+      throw new Error(`Failed to update AdGuard Home rules: ${setRulesResponse.statusText}`);
     }
+
+    console.log(`[AdGuard] Successfully synced ${dnsWhitelist.length} domains to AdGuard Home`);
+    return { success: true, message: 'Synced to AdGuard Home' };
+  } catch (error) {
+    console.error('[AdGuard] Error syncing to AdGuard Home:', error);
+    return { success: false, message: error.message };
+  }
 }
 
-async function addDomainToAdGuard(domain) {
-    if (!adguardConfig.url) return { success: false };
+async function addDomainToAdGuard() {
+  if (!optionsConfig.adguard_url) {
+    return { success: false, message: 'AdGuard Home not configured' };
+  }
 
-    try {
-        await syncToAdGuardHome();
-        return { success: true };
-    } catch (error) {
-        console.error('[AdGuard] Error adding domain:', error);
-        return { success: false, message: error.message };
-    }
+  return syncToAdGuardHome();
 }
 
-async function removeDomainFromAdGuard(domain) {
-    if (!adguardConfig.url) return { success: false };
+async function removeDomainFromAdGuard() {
+  if (!optionsConfig.adguard_url) {
+    return { success: false, message: 'AdGuard Home not configured' };
+  }
 
-    try {
-        await syncToAdGuardHome();
-        return { success: true };
-    } catch (error) {
-        console.error('[AdGuard] Error removing domain:', error);
-        return { success: false, message: error.message };
-    }
+  return syncToAdGuardHome();
 }
 
-// --- HOME ASSISTANT NATIVE API INTEGRATION ---
+// --- HOME ASSISTANT INTERNAL COMMUNICATION ---
 const HA_SUPERVISOR_TOKEN = process.env.SUPERVISOR_TOKEN;
 const HA_API_URL = 'http://supervisor/core/api';
 
-async function generateHaToken(deviceName) {
-    if (!HA_SUPERVISOR_TOKEN) throw new Error('SUPERVISOR_TOKEN is not available.');
-    
-    const response = await fetch(`${HA_API_URL}/auth/token`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${HA_SUPERVISOR_TOKEN}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'long_lived_access_token', client_name: deviceName, lifespan: 365 })
-    });
-
-    if (!response.ok) {
-        const errorBody = await response.text();
-        throw new Error(`HA API Error: ${response.statusText} - ${errorBody}`);
-    }
-    return (await response.text()).replace(/"/g, '');
-}
-
 // --- REAL-TIME REVOCATION VIA WEBSOCKET ---
 function connectToHaWebsocket() {
-    const wsUrl = HA_API_URL.replace('http', 'ws') + '/websocket';
-    const ws = new WebSocket(wsUrl, { headers: { 'Authorization': `Bearer ${HA_SUPERVISOR_TOKEN}` } });
-    let callId = 1;
+  if (!HA_SUPERVISOR_TOKEN) {
+    return;
+  }
 
-    ws.on('open', () => {
-        console.log('[HA WS] Backend WebSocket connected to Home Assistant Core.');
-        ws.send(JSON.stringify({ id: callId++, type: 'subscribe_events', event_type: 'bordneai_revoke_device_event' }));
-    });
+  const wsUrl = HA_API_URL.replace('http', 'ws') + '/websocket';
+  const ws = new WebSocket(wsUrl, {
+    headers: {
+      Authorization: `Bearer ${HA_SUPERVISOR_TOKEN}`
+    }
+  });
 
-    ws.on('message', (message) => {
-        const data = JSON.parse(message);
-        if (data.type === 'event' && data.event.event_type === 'bordneai_revoke_device_event') {
-            const { token_to_revoke } = data.event.data;
-            console.log(`[HA WS] Received event to revoke token.`);
-            revokeToken(token_to_revoke);
-        }
-    });
+  let callId = 1;
 
-    ws.on('close', () => {
-        console.warn('[HA WS] Backend WebSocket disconnected. Reconnecting in 5 seconds...');
-        setTimeout(connectToHaWebsocket, 5000);
-    });
+  ws.on('open', () => {
+    console.log('[HA WS] Backend WebSocket connected to Home Assistant Core.');
+    ws.send(
+      JSON.stringify({
+        id: callId++,
+        type: 'subscribe_events',
+        event_type: 'bordneai_revoke_device_event'
+      })
+    );
+  });
 
-    ws.on('error', (err) => console.error('[HA WS] Backend WebSocket error:', err));
+  ws.on('message', async (message) => {
+    try {
+      const data = JSON.parse(message);
+
+      if (data.type === 'event' && data.event?.event_type === 'bordneai_revoke_device_event') {
+        const tokenToRevoke = data.event.data?.token_to_revoke;
+        const sessionId = data.event.data?.session_id;
+        await revokeSession({ sessionId, tokenToRevoke });
+      }
+    } catch (error) {
+      console.error('[HA WS] Failed to process message:', error);
+    }
+  });
+
+  ws.on('close', () => {
+    console.warn('[HA WS] Backend WebSocket disconnected. Reconnecting in 5 seconds...');
+    setTimeout(connectToHaWebsocket, 5000);
+  });
+
+  ws.on('error', (err) => {
+    console.error('[HA WS] Backend WebSocket error:', err);
+  });
 }
 
-async function revokeToken(tokenToRevoke) {
-    if (!tokenToRevoke) return false;
-    const sessionEntry = Object.entries(sessions).find(([, s]) => s.token === tokenToRevoke);
-    if (sessionEntry) {
-        const [sessionId] = sessionEntry;
-        delete sessions[sessionId];
-        saveSessions();
-        console.log(`[REVOKE] Session ${sessionId} removed from internal store.`);
-        return true;
+async function revokeSession({ sessionId, tokenToRevoke } = {}) {
+  if (sessionId && sessions[sessionId]) {
+    delete sessions[sessionId];
+    saveSessions();
+    console.log(`[REVOKE] Session ${sessionId} removed from internal store.`);
+    return true;
+  }
+
+  if (tokenToRevoke) {
+    const match = Object.entries(sessions).find(([, session]) => session.token === tokenToRevoke);
+    if (match) {
+      delete sessions[match[0]];
+      saveSessions();
+      console.log(`[REVOKE] Session ${match[0]} removed by legacy token lookup.`);
+      return true;
     }
-    return false;
+  }
+
+  return false;
+}
+
+function makeSessionView(sessionId, session) {
+  return {
+    sessionId,
+    status: session.status,
+    deviceName: session.deviceName || session.userAgent || 'Unknown device',
+    createdAt: session.createdAt ? new Date(session.createdAt).toISOString() : null,
+    approvedAt: session.approvedAt ? new Date(session.approvedAt).toISOString() : null,
+    createdBy: session.createdByDisplayName || session.createdByName || session.createdById || null,
+    approvedBy: session.approvedBy || null
+  };
 }
 
 // --- API ENDPOINTS ---
 app.get('/api/onboarding/init', (req, res) => {
-    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-    const sessionId = uuidv4();
-    sessions[sessionId] = { code, status: 'pending', ip: req.ip, userAgent: req.get('User-Agent'), createdAt: Date.now(), token: null };
-    saveSessions();
-    setTimeout(() => {
-        if (sessions[sessionId]?.status === 'pending') {
-            delete sessions[sessionId];
-            saveSessions();
-        }
-    }, 300000);
-    res.json({ code, sessionId });
+  const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+  const sessionId = uuidv4();
+  const remoteUser = getRemoteUser(req);
+  const userAgent = req.get('User-Agent') || 'Unknown device';
+
+  sessions[sessionId] = {
+    code,
+    status: 'pending',
+    ip: req.socket.remoteAddress,
+    userAgent,
+    deviceName: userAgent.substring(0, 80),
+    createdAt: Date.now(),
+    createdById: remoteUser.id || null,
+    createdByName: remoteUser.name || null,
+    createdByDisplayName: remoteUser.displayName || null,
+    approvedAt: null,
+    approvedBy: null
+  };
+
+  saveSessions();
+  schedulePendingSessionExpiry(sessionId);
+
+  res.json({
+    code,
+    sessionId,
+    expiresInMs: SESSION_TTL_MS
+  });
 });
 
 app.get('/api/onboarding/status', (req, res) => {
-    const { sessionId } = req.query;
-    const session = sessions[sessionId];
-    if (!session) return res.status(404).json({ status: 'expired' });
-    if (session.status === 'approved' && session.token) {
-        const { token } = session;
-        session.status = 'completed';
-        saveSessions();
-        res.json({ status: 'approved', token });
-    } else {
-        res.json({ status: 'pending' });
-    }
+  const sessionId = String(req.query.sessionId || '').trim();
+  if (!sessionId) {
+    return res.status(400).json({ error: 'sessionId is required' });
+  }
+
+  const session = sessions[sessionId];
+  if (!session) {
+    return res.status(404).json({ status: 'expired' });
+  }
+
+  if (!canAccessSession(req, session)) {
+    return res.status(403).json({ error: 'Not allowed to view this session' });
+  }
+
+  if (session.status === 'approved') {
+    session.status = 'completed';
+    session.completedAt = Date.now();
+    saveSessions();
+
+    return res.json({
+      status: 'approved',
+      sessionId,
+      deviceName: session.deviceName,
+      approvedAt: session.approvedAt ? new Date(session.approvedAt).toISOString() : null
+    });
+  }
+
+  return res.json({ status: session.status });
 });
 
-app.post('/api/onboarding/approve', async (req, res) => {
-    const { code } = req.body;
-    const sessionEntry = Object.entries(sessions).find(([, s]) => s.code === code && s.status === 'pending');
-    if (!sessionEntry) return res.status(400).json({ error: 'Invalid or expired code.' });
-    
-    const [sessionId, session] = sessionEntry;
-    try {
-        const deviceName = `BordneAI - ${session.userAgent.substring(0, 30)}`;
-        session.token = await generateHaToken(deviceName);
-        session.status = 'approved';
-        saveSessions();
-        res.json({ success: true });
-    } catch (error) {
-        res.status(500).json({ error: 'Token generation failed.' });
-    }
+app.post('/api/onboarding/approve', requireManagementUser, (req, res) => {
+  const code = String(req.body?.code || '').trim().toUpperCase();
+  if (!code) {
+    return res.status(400).json({ error: 'Code is required.' });
+  }
+
+  const sessionEntry = Object.entries(sessions).find(
+    ([, session]) => session.code === code && session.status === 'pending'
+  );
+
+  if (!sessionEntry) {
+    return res.status(400).json({ error: 'Invalid or expired code.' });
+  }
+
+  const [sessionId, session] = sessionEntry;
+  delete session.token;
+  session.status = 'approved';
+  session.approvedAt = Date.now();
+  session.approvedBy = getRemoteUserLabel(req);
+
+  saveSessions();
+
+  return res.json({
+    success: true,
+    sessionId,
+    deviceName: session.deviceName
+  });
 });
 
-app.get('/api/sessions', (req, res) => {
-    const activeSessions = Object.values(sessions).filter(s => s.status === 'completed');
-    res.json(activeSessions.map(s => ({ token: s.token, deviceName: s.userAgent, onboardedAt: new Date(s.createdAt).toLocaleString() })));
+app.get('/api/sessions', requireManagementUser, (req, res) => {
+  const activeSessions = Object.entries(sessions)
+    .filter(([, session]) => ['approved', 'completed'].includes(session.status))
+    .map(([sessionId, session]) => makeSessionView(sessionId, session));
+
+  res.json(activeSessions);
 });
 
-app.post('/api/onboarding/revoke', async (req, res) => {
-    const { token_to_revoke } = req.body;
-    if (!token_to_revoke) return res.status(400).json({ error: 'Token is required.' });
-    if (await revokeToken(token_to_revoke)) {
-        res.json({ success: true, message: 'Revocation processed.' });
-    } else {
-        res.status(404).json({ error: 'Token not found in active sessions.' });
-    }
+app.post('/api/onboarding/revoke', requireManagementUser, async (req, res) => {
+  const sessionId = String(req.body?.sessionId || '').trim();
+  const tokenToRevoke = String(req.body?.token_to_revoke || '').trim();
+
+  if (!sessionId && !tokenToRevoke) {
+    return res.status(400).json({ error: 'sessionId is required.' });
+  }
+
+  if (await revokeSession({ sessionId, tokenToRevoke })) {
+    return res.json({ success: true, message: 'Revocation processed.' });
+  }
+
+  return res.status(404).json({ error: 'Session not found.' });
 });
 
 // --- DNS WHITELIST API ENDPOINTS ---
-app.get('/api/whitelist', (req, res) => {
-    res.json(dnsWhitelist);
+app.get('/api/whitelist', requireManagementUser, (req, res) => {
+  res.json(dnsWhitelist);
 });
 
-app.post('/api/whitelist/add', async (req, res) => {
-    const { domain } = req.body;
-    if (!domain) return res.status(400).json({ error: 'Domain is required.' });
+app.post('/api/whitelist/add', requireManagementUser, async (req, res) => {
+  const domain = String(req.body?.domain || '').trim().toLowerCase();
+  if (!domain) {
+    return res.status(400).json({ error: 'Domain is required.' });
+  }
 
-    // Basic domain validation
-    const domainRegex = /^([a-zA-Z0-9-]+\.)*[a-zA-Z0-9-]+\.[a-zA-Z]{2,}$/;
-    if (!domainRegex.test(domain)) {
-        return res.status(400).json({ error: 'Invalid domain format.' });
-    }
+  const domainRegex = /^([a-zA-Z0-9-]+\.)*[a-zA-Z0-9-]+\.[a-zA-Z]{2,}$/;
+  if (!domainRegex.test(domain)) {
+    return res.status(400).json({ error: 'Invalid domain format.' });
+  }
 
-    // Check if domain already exists
-    if (dnsWhitelist.some(item => item.domain === domain)) {
-        return res.status(400).json({ error: 'Domain already exists in whitelist.' });
-    }
+  if (dnsWhitelist.some((item) => item.domain === domain)) {
+    return res.status(400).json({ error: 'Domain already exists in whitelist.' });
+  }
 
-    const newEntry = {
-        id: uuidv4(),
-        domain: domain,
-        addedAt: Date.now(),
-        addedBy: req.ip
-    };
+  const newEntry = {
+    id: uuidv4(),
+    domain,
+    addedAt: Date.now(),
+    addedBy: getRemoteUserLabel(req)
+  };
 
-    dnsWhitelist.push(newEntry);
-    saveWhitelist();
+  dnsWhitelist.push(newEntry);
+  saveWhitelist();
 
-    // Sync to AdGuard Home
-    const adguardResult = await addDomainToAdGuard(domain);
-
-    res.json({
-        success: true,
-        entry: newEntry,
-        adguard: adguardResult
-    });
+  const adguardResult = await addDomainToAdGuard(domain);
+  res.json({ success: true, entry: newEntry, adguard: adguardResult });
 });
 
-app.post('/api/whitelist/remove', async (req, res) => {
-    const { id } = req.body;
-    if (!id) return res.status(400).json({ error: 'ID is required.' });
+app.post('/api/whitelist/remove', requireManagementUser, async (req, res) => {
+  const id = String(req.body?.id || '').trim();
+  if (!id) {
+    return res.status(400).json({ error: 'ID is required.' });
+  }
 
-    const index = dnsWhitelist.findIndex(item => item.id === id);
-    if (index === -1) {
-        return res.status(404).json({ error: 'Domain not found in whitelist.' });
-    }
+  const index = dnsWhitelist.findIndex((item) => item.id === id);
+  if (index === -1) {
+    return res.status(404).json({ error: 'Domain not found in whitelist.' });
+  }
 
-    const domain = dnsWhitelist[index].domain;
-    dnsWhitelist.splice(index, 1);
-    saveWhitelist();
+  const domain = dnsWhitelist[index].domain;
+  dnsWhitelist.splice(index, 1);
+  saveWhitelist();
 
-    // Sync to AdGuard Home
-    const adguardResult = await removeDomainFromAdGuard(domain);
-
-    res.json({
-        success: true,
-        message: 'Domain removed from whitelist.',
-        adguard: adguardResult
-    });
+  const adguardResult = await removeDomainFromAdGuard(domain);
+  res.json({ success: true, message: 'Domain removed from whitelist.', adguard: adguardResult });
 });
 
-app.post('/api/whitelist/clear', async (req, res) => {
-    dnsWhitelist = [];
-    saveWhitelist();
+app.post('/api/whitelist/clear', requireManagementUser, async (req, res) => {
+  dnsWhitelist = [];
+  saveWhitelist();
 
-    // Sync to AdGuard Home
-    const adguardResult = await syncToAdGuardHome();
-
-    res.json({
-        success: true,
-        message: 'Whitelist cleared.',
-        adguard: adguardResult
-    });
+  const adguardResult = await syncToAdGuardHome();
+  res.json({ success: true, message: 'Whitelist cleared.', adguard: adguardResult });
 });
 
 // --- SERVER START ---
@@ -360,21 +591,21 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 app.listen(PORT, async () => {
-    console.log(`BordneAI Gateway started on port ${PORT}.`);
-    if (HA_SUPERVISOR_TOKEN) {
-        connectToHaWebsocket();
-    } else {
-        console.error("CRITICAL: SUPERVISOR_TOKEN not found. Real-time revocation will not work.");
-    }
+  console.log(`BordneAI Gateway started on port ${PORT}.`);
 
-    // Initial sync to AdGuard Home on startup
-    if (adguardConfig.url) {
-        console.log('[AdGuard] Performing initial sync on startup...');
-        const syncResult = await syncToAdGuardHome();
-        if (syncResult.success) {
-            console.log('[AdGuard] Initial sync completed successfully');
-        } else {
-            console.error('[AdGuard] Initial sync failed:', syncResult.message);
-        }
+  if (HA_SUPERVISOR_TOKEN) {
+    connectToHaWebsocket();
+  } else {
+    console.error('CRITICAL: SUPERVISOR_TOKEN not found. Real-time revocation will not work.');
+  }
+
+  if (optionsConfig.adguard_url) {
+    console.log('[AdGuard] Performing initial sync on startup...');
+    const syncResult = await syncToAdGuardHome();
+    if (syncResult.success) {
+      console.log('[AdGuard] Initial sync completed successfully');
+    } else {
+      console.error('[AdGuard] Initial sync failed:', syncResult.message);
     }
+  }
 });
