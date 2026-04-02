@@ -1,129 +1,108 @@
-# BordneAI Gateway Home Assistant Add-on
+# BordneAI Gateway
 
-This add-on provides a secure gateway for onboarding new devices (like a Tesla browser or smart TV) to the BordneAI Dashboard without needing to enter credentials on the device itself.
+BordneAI Gateway is a Home Assistant app that provides an ingress-based web UI for device onboarding, session management, and DNS whitelist administration.
 
-## Features
+## What it does
 
-- **Secure Onboarding**: Uses a QR code and trusted device (your phone) to approve new dashboard sessions.
-- **Native HA Authentication**: Uses the Home Assistant Supervisor for secure, automatic API access. No manual Long-Lived Access Token creation is required.
-- **Live Dashboard**: The included single-page app connects directly to your Home Assistant WebSocket API for real-time entity updates.
-- **Session Persistence**: Onboarded device sessions are saved to the `/data` directory and survive restarts of the add-on.
-- **Real-time Revocation**: A Home Assistant script can fire an event to instantly revoke a device's access.
-- **DNS Whitelist Management**: Built-in web interface to manage whitelisted domains for DNS filtering integration.
+- onboarding flow for new dashboard devices
+- approval flow through a trusted Home Assistant session
+- session tracking and revocation
+- DNS whitelist management
+- optional AdGuard Home sync for allowlist rules
+
+## Access model
+
+BordneAI Gateway is intended to be used through **Home Assistant ingress** and the **Open Web UI** button.
+
+Recommended hardened behavior:
+
+- no host port is published for direct external access
+- management actions are restricted to approved admin identities
+- onboarding approval is completed server-side
+- raw Home Assistant long-lived tokens are not returned to onboarding clients
+- session data persists in `/data`
 
 ## Installation
 
-1.  **Copy the Add-on Folder**: Place the entire `bordneai_gateway` directory into the `/addons` directory of your Home Assistant installation.
-2.  **Refresh the Add-on Store**: Go to Settings -> Add-ons -> Add-on Store. Click the three dots in the top right and select "Check for updates".
-3.  **Install**: The "BordneAI Gateway" add-on will appear under the "Local add-ons" section. Click on it and then click "Install".
-4.  **Start**: Start the add-on. Check the logs to ensure the server starts correctly.
-5.  **Access the UI**: Use the "Open Web UI" button on the add-on's page. If it's the first time accessing from that browser, it will begin the secure onboarding process.
+### Repository install
+1. Add the BordneAI add-on repository to Home Assistant.
+2. Refresh the Add-on Store.
+3. Install **BordneAI Gateway**.
+4. Start the app.
+5. Open the UI from the add-on page.
 
-## DNS Whitelist
+### Local install
+1. Copy `bordneai_gateway` into your Home Assistant `/addons` directory.
+2. Refresh local add-ons.
+3. Install and start **BordneAI Gateway**.
+4. Open the UI from the add-on page.
 
-The add-on includes a DNS whitelist management interface accessible from the dashboard. Click the **"DNS Whitelist"** button in the header to manage whitelisted domains.
+## Configuration
 
-### AdGuard Home Integration
+### Required platform behavior
+- `ingress: true`
+- `ingress_port: 1111`
+- `homeassistant_api: true`
 
-The DNS whitelist automatically syncs with **AdGuard Home** if configured. To enable integration:
+### App options
+- `adguard_url`  
+  Optional AdGuard Home base URL.
 
-1. Go to the add-on **Configuration** tab
-2. Set the following options:
-   - **adguard_url**: The URL of your AdGuard Home instance
-     - If using Home Assistant AdGuard Home addon: `http://a0d7b954-adguard` (or check your addon slug)
-     - If using external AdGuard Home: `http://your-ip:3000`
-   - **adguard_username**: Your AdGuard Home username (from Settings → General Settings)
-   - **adguard_password**: Your AdGuard Home password
-3. Save the configuration and restart the add-on
-4. Check the addon logs to verify successful connection: `[AdGuard] Successfully synced X domains to AdGuard Home`
+- `adguard_username`  
+  Optional AdGuard Home username.
 
-Once configured, all whitelist changes will automatically sync to AdGuard Home's custom filtering rules. The addon uses the AdGuard Home API to add allowlist rules in the format `@@||domain.com^$important`.
+- `adguard_password`  
+  Optional AdGuard Home password.
 
-**Note**: If AdGuard Home is not configured, the whitelist will still work locally but won't affect DNS filtering.
+- `admin_users`  
+  Comma-separated Home Assistant usernames or user IDs allowed to approve devices, revoke sessions, and manage the whitelist.
 
-### Default Whitelisted Domains
+## DNS whitelist
 
-The following domains are automatically added to the whitelist on first startup:
-- startme.com
-- bordne.com
-- icloud.com
-- apple.com
-- amazon.com
-- chat.avatar.ext.hp.com
-- googleapis.com
-- tesla.com
-- teslamotors.com
-- sg.vzwfemto.com
-- izatcloud.net
-- pool.ntp.org
+The app maintains a DNS whitelist in `/data/dns_whitelist.json`.
 
-### Managing the Whitelist
+Supported actions:
+- view whitelist entries
+- add a domain
+- remove a domain
+- clear all domains
 
-You can add, remove, or clear domains through the web interface. The whitelist is stored in `/data/dns_whitelist.json` and persists across restarts. All changes sync to AdGuard Home in real-time if integration is enabled.
+If AdGuard Home is configured, whitelist changes are synced to AdGuard Home custom filtering rules.
 
-### API Endpoints
+## Session management
 
-The whitelist can also be managed programmatically:
-- `GET /api/whitelist` - Get all whitelisted domains
-- `POST /api/whitelist/add` - Add a domain (body: `{"domain": "example.com"}`)
-- `POST /api/whitelist/remove` - Remove a domain (body: `{"id": "domain-id"}`)
-- `POST /api/whitelist/clear` - Clear all domains
+The app stores approved session metadata in `/data/sessions.json`.
 
-All API endpoints will sync to AdGuard Home if configured.
+Recommended hardened behavior:
+- pending sessions expire automatically
+- management views do not expose raw Home Assistant tokens
+- revocation targets session records rather than token disclosure in the UI
 
-## Revocation Setup (Optional)
+## AdGuard Home notes
 
-To enable the device revocation UI in your Lovelace dashboard:
+If AdGuard Home is configured, BordneAI Gateway syncs allowlist rules using the AdGuard Home API.
 
-1.  **Add to `configuration.yaml`**: Add the following code to your `configuration.yaml` file and restart Home Assistant.
+Typical local add-on URL format:
+- `http://a0d7b954-adguard`
 
-    ```yaml
-    sensor:
-      - platform: rest
-        name: "BordneAI Devices"
-        resource: http://a0d7b954-bordneai-gateway/api/sessions
-        scan_interval: 300
-        value_template: "{{ value_json | length }}"
-        json_attributes:
-          - "devices"
+Example external URL format:
+- `http://your-ip:3000`
 
-    script:
-      bordneai_revoke_device:
-        alias: "Revoke BordneAI Device"
-        fields:
-          token_to_revoke:
-            description: "The token of the device session to revoke."
-            example: "ey..."
-        sequence:
-          - event: bordneai_revoke_device_event
-            event_data:
-              token_to_revoke: "{{ token_to_revoke }}"
-    ```
+## Troubleshooting
 
-2.  **Add Lovelace Card**: In your dashboard, add a new card and paste the following YAML. This requires the `auto-entities` custom card from HACS.
+### UI does not load
+- confirm the app starts successfully
+- confirm ingress is enabled
+- confirm `ingress_port` matches the application listen port
 
-    ```yaml
-    type: custom:auto-entities
-    card:
-      type: entities
-      title: BordneAI Onboarded Devices
-    filter:
-      template: |
-        {% for device in state_attr('sensor.bordneai_devices', 'devices') %}
-          {{
-            {
-              'type': 'custom:button-card',
-              'name': device.deviceName | truncate(35),
-              'label': 'Onboarded: ' + device.onboardedAt,
-              'tap_action': {
-                'action': 'call-service',
-                'service': 'script.bordneai_revoke_device',
-                'service_data': {
-                  'token_to_revoke': device.token
-                }
-              },
-              'icon': 'mdi:lan-disconnect'
-            }
-          }},
-        {% endfor %}
-    ```
+### Management actions are denied
+- confirm `admin_users` is configured
+- confirm your Home Assistant user matches one of the configured values
+
+### AdGuard sync fails
+- confirm the URL, username, and password are correct
+- check add-on logs for AdGuard API errors
+
+## License
+
+See the root repository `LICENSE`.
