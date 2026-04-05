@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+- Added explicit `ingress_port` configuration to match the Gateway listen port.
+- Restricted app access to Home Assistant ingress traffic.
+- Required authenticated Home Assistant ingress user identity for API access.
+- Limited approval, session, revocation, and whitelist management routes to configured admin users.
+- Removed raw Home Assistant token exposure from onboarding and session responses.
+
+### Changed
+- Updated Gateway documentation to describe ingress-based access, admin-managed approval, and optional AdGuard Home sync.
+- Updated repository documentation to reflect the public source layout and root license notice.
+- Prepared the onboarding flow for a tokenless approval model.
+
+### Fixed
+- Corrected repository maintainer metadata.
+- Removed stale references to `LICENSE.md`.
+- Clarified repository-install and local-install instructions.
+
 ## [3.3.7] - 2025-11-11
 
 ### Fixed
